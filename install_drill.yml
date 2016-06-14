@@ -2,4 +2,4 @@
   - name: Install Drill
     hosts: cluster
     roles:
-      - { role: ApacheDrill, drill_version: 1.6.0, cluster_id: vonage, drill_max_direct_memory: 2G, drill_heap: 1G }
+      - { role: ApacheDrill, drill_version: 1.6.0, cluster_id: cluster, drill_max_direct_memory: 2G, drill_heap: 1G }
