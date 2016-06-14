@@ -1,0 +1,135 @@
+---
+# tasks file for drillonhdp
+- name: Check if Drill has already been downloaded
+  stat:
+    path: /tmp/apache-drill-{{drill_version}}.tar.gz
+  register: drill_downloaded
+
+- name: Download Apache Drill
+  become_user: root
+  environment:
+    http_proxy: '{{ http_proxy }}'
+    https_proxy: '{{ https_proxy }}'
+  get_url:
+    url: http://www.apache.org/dyn/closer.lua?filename=drill/drill-{{drill_version}}/apache-drill-{{drill_version}}.tar.gz&action=download
+    dest: /tmp/apache-drill-{{drill_version}}.tar.gz
+  when: not drill_downloaded.stat.exists
+
+- name: Create destination directory
+  file:
+    path: /opt/drill
+    owner: '{{admin_username}}'
+    group: hadoop
+    state: directory
+
+- name: Extract Drill
+  unarchive:
+    src: /tmp/apache-drill-{{drill_version}}.tar.gz
+    dest: /opt/drill
+    copy: no
+
+- name: Set Permissions for Drill
+  file:
+    path: /opt/drill
+    owner: '{{admin_username}}'
+    group: hadoop
+    recurse: true
+
+- name: Create links for current
+  file:
+    path: /opt/drill/current
+    owner: '{{admin_username}}'
+    group: hadoop
+    src: /opt/drill/apache-drill-{{drill_version}}
+    state: link
+
+- name: Create Drill directory for /etc
+  file:
+    path: /etc/drill
+    owner: '{{admin_username}}'
+    group: hadoop
+    state: directory
+
+- name: Create link for /etc/drill
+  file:
+    path: /etc/drill/conf
+    owner: '{{admin_username}}'
+    group: hadoop
+    src: /opt/drill/current/conf
+    state: link
+
+- name: Set cluster name
+  become_user: '{{admin_username}}'
+  lineinfile:
+    dest: /etc/drill/conf/drill-override.conf
+    line: 'cluster-id: "{{cluster_id}}",'
+    regexp: cluster-id
+    state: present
+
+- name: Set zookeeper_list
+  set_fact:
+    zookeeper_list: "{% for host in groups.zookeeper %}{{hostvars[host]['ansible_fqdn']}}:{{zookeeper_port}}{% if not loop.last %},{% endif %}{% endfor %}"
+
+- name: Configure Zookeepers for Apache Drill
+  become_user: '{{admin_username}}'
+  lineinfile:
+    dest: /etc/drill/conf/drill-override.conf
+    line: 'zk.connect: "{{ zookeeper_list }}"'
+    regexp: zk.connect
+    state: present
+
+- name: Configure Drill Max Direct Memory
+  become_user: '{{admin_username}}'
+  lineinfile:
+    dest: /etc/drill/conf/drill-env.sh
+    line: 'DRILL_MAX_DIRECT_MEMORY="{{drill_max_direct_memory}}"'
+    regexp: ^DRILL_MAX_DIRECT_MEMORY
+    state: present
+
+- name: Configure Drill Heap Memory
+  become_user: '{{admin_username}}'
+  lineinfile:
+    dest: /etc/drill/conf/drill-env.sh
+    line: 'DRILL_HEAP="{{drill_heap}}"'
+    regexp: ^DRILL_HEAP
+
+- name: Create pstore directory
+  become_user: '{{admin_username}}'
+  run_once: yes
+  command: hadoop fs -mkdir -p /apps/drill/pstore
+
+- name: enable HDFS pstore
+  become_user: '{{admin_username}}'
+  lineinfile:
+    dest: /opt/drill/current/conf/drill-override.conf
+    line: 'drill.exec.sys.store.provider.zk.blobroot: "hdfs://{{groups["namenode"][0]}}/apps/drill/pstore/"'
+    regexp: "drill.exec.sys.store.provider.zk.blobroot"
+    state: present
+
+- name: pause for a bit
+  pause: seconds=30
+
+- name: restart drillbits now
+  become_user: '{{admin_username}}'
+  command: /opt/drill/current/bin/drillbit.sh --config /opt/drill/current/conf restart
+
+- name: wait for drillbits to come up
+  wait_for: port=8047 delay=10 timeout=60
+
+- name: create dfs storage plugin json file
+  become_user: '{{admin_username}}'
+  template: src=dfs-storage-plugin.json.j2 dest=/tmp/dfs-storage-plugin.json mode=0644
+
+- name: add dfs storage plugin
+  shell: 'curl -f -H "Content-Type: application/json" -X POST -d @/tmp/dfs-storage-plugin.json http://localhost:8047/storage/dfs.json'
+  run_once: true
+
+- name: create hive storage plugin json file
+  become_user: '{{admin_username}}'
+  template: src=hive-storage-plugin.json.j2 dest=/tmp/hive-storage-plugin.json mode=0644
+  when: hive_enabled is defined and hive_enabled == True
+
+- name: add hive storage plugin (no SSL)
+  shell: 'curl -f -H "Content-Type: application/json" -X POST -d @/tmp/hive-storage-plugin.json http://localhost:8047/storage/hive.json'
+  run_once: true
+  when: hive_enabled is defined and hive_enabled == True

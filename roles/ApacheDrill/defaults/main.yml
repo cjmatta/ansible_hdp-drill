@@ -1,0 +1,12 @@
+---
+# defaults file for drillonhdp
+http_proxy: ''
+https_proxy: ''
+drill_version: 1.6.0
+admin_username: hdfs
+hive_metastore_host: '{{groups["hiveserver"][0]}}'
+zookeeper_port: 2181
+cluster_id: drillcluster
+drill_max_direct_memory: 8G
+drill_heap: 4G
+hive_enabled: True
