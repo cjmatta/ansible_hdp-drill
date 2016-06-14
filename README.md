@@ -24,9 +24,6 @@ ip-172-16-1-204.ec2.internal
 [hiveserver]
 ip-172-16-1-203.ec2.internal
 
-[hive_metastore]
-ip-172-16-1-203.ec2.internal
-
 [namenode]
 ip-172-16-1-202.ec2.internal
 ```
